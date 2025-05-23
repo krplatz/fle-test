@@ -245,19 +245,55 @@ class LLMFactory:
                 return response
             except Exception as e:
                 print(e)
-        else:
+        else: # This is the default OpenAI / OpenAI-compatible path
             try:
-                client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+                custom_base_url = os.getenv("LMSTUDIO_OPENAI_BASE_URL")
+                # Check for explicit custom API key, or an empty string for it.
+                # os.getenv returns None if var is not found.
+                # If LMSTUDIO_OPENAI_API_KEY is set to an empty string, custom_api_key will be "".
+                custom_api_key = os.getenv("LMSTUDIO_OPENAI_API_KEY") 
+
+                api_key_to_use = None 
+                base_url_to_use = None
+
+                if custom_base_url:
+                    base_url_to_use = custom_base_url
+                    if custom_api_key is not None: # Explicitly set, even if empty string
+                        api_key_to_use = custom_api_key
+                        print(f"LLMFactory: Using custom OpenAI-compatible endpoint. Base URL: {base_url_to_use}")
+                        print(f"LLMFactory: Using API key from LMSTUDIO_OPENAI_API_KEY ('{api_key_to_use if api_key_to_use else 'empty string'}').")
+                    else: # LMSTUDIO_OPENAI_API_KEY is not set at all
+                        api_key_to_use = None # Pass None to AsyncOpenAI
+                        print(f"LLMFactory: Using custom OpenAI-compatible endpoint. Base URL: {base_url_to_use}")
+                        print("LLMFactory: LMSTUDIO_OPENAI_API_KEY not set, using api_key=None.")
+                else:
+                    # Default to OpenAI official
+                    api_key_to_use = os.getenv("OPENAI_API_KEY")
+                    print("LLMFactory: Using default OpenAI endpoint.")
+                    if not api_key_to_use:
+                        print("LLMFactory: Warning - OPENAI_API_KEY not set for default OpenAI endpoint.")
+
+
+                client = AsyncOpenAI(api_key=api_key_to_use, base_url=base_url_to_use)
+                
                 assert "messages" in kwargs, "You must provide a list of messages to the model."
 
-                if has_images:
-                    # Format messages for OpenAI with image support
-                    formatted_messages = format_messages_for_openai(messages)
-                else:
-                    formatted_messages = messages
+                # Message formatting logic (assuming has_images and format_messages_for_openai are defined elsewhere in the class or file)
+                current_messages = kwargs.get('messages', [])
+                # has_images is defined at the start of acall method.
+                # model_to_use is also defined at the start of acall method.
 
-                return await client.chat.completions.create(
-                    model=model_to_use,
+                if has_images and not self._is_model_image_compatible(model_to_use): # Ensure self._is_model_image_compatible is available
+                    raise ValueError(f"Model {model_to_use} does not support image inputs, but images were provided.")
+
+                if has_images:
+                    formatted_messages = format_messages_for_openai(current_messages) # Ensure this helper is available
+                else:
+                    formatted_messages = current_messages
+                
+                # Make the call
+                response = await client.chat.completions.create(
+                    model=model_to_use, # model_to_use is from kwargs.get('model', self.model)
                     max_tokens=kwargs.get('max_tokens', 256),
                     temperature=kwargs.get('temperature', 0.3),
                     messages=formatted_messages,
@@ -268,27 +304,48 @@ class LLMFactory:
                     presence_penalty=kwargs.get('presence_penalty', None),
                     frequency_penalty=kwargs.get('frequency_penalty', None),
                 )
+                return response
             except Exception as e:
-                print(e)
+                print(f"LLMFactory: Error in OpenAI compatible API call: {e}")
+                # Fallback attempt with truncated messages (as was in original code)
                 try:
-                    client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-                    assert "messages" in kwargs, "You must provide a list of messages to the model."
+                    print("LLMFactory: Retrying OpenAI call with truncated message history as fallback.")
+                    # (Ensure client is initialized as above for this retry block as well)
+                    # Re-apply custom URL/key logic for retry client
+                    custom_base_url_retry = os.getenv("LMSTUDIO_OPENAI_BASE_URL")
+                    custom_api_key_retry = os.getenv("LMSTUDIO_OPENAI_API_KEY")
+                    api_key_retry = None
+                    base_url_retry = None
 
-                    # Attempt with truncated message history as fallback
-                    sys = kwargs.get('messages', None)[0]
-                    messages = [sys] + kwargs.get('messages', None)[8:]
+                    if custom_base_url_retry:
+                        base_url_retry = custom_base_url_retry
+                        if custom_api_key_retry is not None:
+                            api_key_retry = custom_api_key_retry
+                        else: # Not set, pass None
+                            api_key_retry = None 
+                    else: # Default OpenAI for retry
+                        api_key_retry = os.getenv("OPENAI_API_KEY")
+                    
+                    client_retry = AsyncOpenAI(api_key=api_key_retry, base_url=base_url_retry)
 
-                    if has_images:
-                        # Format messages for OpenAI with image support
-                        formatted_messages = format_messages_for_openai(messages)
+                    sys_msg = kwargs.get('messages', [])[0] # System message
+                    # Truncate to system message + last 8 user/assistant messages
+                    truncated_messages_raw = [sys_msg] + kwargs.get('messages', [])[-8:] 
+                    
+                    has_images_retry = has_image_content(truncated_messages_raw)
+                    if has_images_retry and not self._is_model_image_compatible(model_to_use):
+                         raise ValueError(f"Fallback: Model {model_to_use} does not support image inputs.")
+
+                    if has_images_retry:
+                        formatted_messages_retry = format_messages_for_openai(truncated_messages_raw)
                     else:
-                        formatted_messages = messages
+                        formatted_messages_retry = truncated_messages_raw
 
-                    return await client.chat.completions.create(
+                    return await client_retry.chat.completions.create(
                         model=model_to_use,
                         max_tokens=kwargs.get('max_tokens', 256),
                         temperature=kwargs.get('temperature', 0.3),
-                        messages=formatted_messages,
+                        messages=formatted_messages_retry, # Use formatted truncated messages
                         logit_bias=kwargs.get('logit_bias', None),
                         n=kwargs.get('n_samples', None),
                         stop=kwargs.get('stop_sequences', None),
@@ -296,9 +353,9 @@ class LLMFactory:
                         presence_penalty=kwargs.get('presence_penalty', None),
                         frequency_penalty=kwargs.get('frequency_penalty', None),
                     )
-                except Exception as e:
-                    print(e)
-                    raise
+                except Exception as final_e:
+                    print(f"LLMFactory: Error in OpenAI fallback API call: {final_e}")
+                    raise final_e # Re-raise the final exception
 
     def call(self, *args, **kwargs):
         # For the synchronous version, we should also implement image support,
@@ -406,18 +463,41 @@ class LLMFactory:
             return client.chat.completions.create(*args, n=self.beam,
                                                   **kwargs,
                                                   stream=False)
-        else:
-            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-            assert "messages" in kwargs, "You must provide a list of messages to the model."
+        else: # This is the default OpenAI / OpenAI-compatible path for the synchronous 'call'
+            custom_base_url = os.getenv("LMSTUDIO_OPENAI_BASE_URL")
+            custom_api_key = os.getenv("LMSTUDIO_OPENAI_API_KEY") # Will be None if not set
 
-            if has_images:
-                # Format messages for OpenAI with image support
-                formatted_messages = self._format_messages_for_openai(messages)
+            api_key_to_use = None
+            base_url_to_use = None 
+
+            if custom_base_url:
+                base_url_to_use = custom_base_url
+                if custom_api_key is not None: # Explicitly set (could be empty string)
+                    api_key_to_use = custom_api_key
+                    print(f"LLMFactory (sync): Using custom OpenAI-compatible endpoint. Base URL: {base_url_to_use}")
+                    print(f"LLMFactory (sync): Using API key from LMSTUDIO_OPENAI_API_KEY ('{api_key_to_use if api_key_to_use else 'empty string'}').")
+                else: # LMSTUDIO_OPENAI_API_KEY is not set at all
+                    api_key_to_use = None # Pass None to OpenAI client
+                    print(f"LLMFactory (sync): Using custom OpenAI-compatible endpoint. Base URL: {base_url_to_use}")
+                    print("LLMFactory (sync): LMSTUDIO_OPENAI_API_KEY not set, using api_key=None.")
             else:
-                formatted_messages = messages
+                # Default to OpenAI official
+                api_key_to_use = os.getenv("OPENAI_API_KEY")
+                print("LLMFactory (sync): Using default OpenAI endpoint.")
+                if not api_key_to_use:
+                     print("LLMFactory (sync): Warning - OPENAI_API_KEY not set for default OpenAI endpoint.")
+            
+            client = OpenAI(api_key=api_key_to_use, base_url=base_url_to_use) 
+            
+            assert "messages" in kwargs, "You must provide a list of messages to the model."
+            
+            # Assuming formatted_messages are directly the messages from kwargs for sync path
+            # (as per original structure of 'call' method which had less image handling than 'acall')
+            # And as per the prompt's provided snippet for this change.
+            formatted_messages = kwargs.get('messages', [])
 
             return client.chat.completions.create(
-                model=model_to_use,
+                model=kwargs.get('model', self.model), # model_to_use from kwargs
                 max_tokens=kwargs.get('max_tokens', 256),
                 temperature=kwargs.get('temperature', 0.3),
                 messages=formatted_messages,
