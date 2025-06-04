@@ -4,7 +4,9 @@ import io
 import contextlib
 import traceback
 import asyncio
-import builtins # For mock execution fallback
+import builtins  # For mock execution fallback
+
+from .environment.base import EnvironmentBase
 
 try:
     from env.src.instance import FactorioInstance
@@ -108,8 +110,11 @@ REFLECTION_SYSTEM_PROMPT = (
     "Structure your response clearly, with the explanation first, then the corrected script (if any) or the suggestion."
 )
 
+from typing import Optional
+
+
 class AlphaGeniusAgent:
-    def __init__(self, config=None, environment=None, model_name: str = "gpt-4o-mini", agent_idx: int = 0):
+    def __init__(self, config=None, environment: Optional[EnvironmentBase] = None, model_name: str = "gpt-4o-mini", agent_idx: int = 0):
         # ... (self.config, self.environment, self.agent_idx setup)
         self.config = config; self.environment = environment; self.agent_idx = agent_idx
         
