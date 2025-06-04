@@ -1,17 +1,20 @@
+"""Basic in-memory world model."""
+
+from typing import Any, Dict, Optional
+
 class WorldModel:
-    """A minimal world model for storing simple key-value facts."""
+    """Simple key-value store for agent knowledge."""
 
-    def __init__(self):
-        self._facts = {}
+    def __init__(self) -> None:
+        self._facts: Dict[str, Any] = {}
 
-    def set_fact(self, key, value):
-        """Stores or updates a fact."""
+    def set_fact(self, key: str, value: Any) -> None:
+        """Record a fact in the world model."""
         self._facts[key] = value
 
-    def get_fact(self, key, default=None):
-        """Retrieves a fact by key."""
-        return self._facts.get(key, default)
+    def get_fact(self, key: str) -> Optional[Any]:
+        """Retrieve a fact by key."""
+        return self._facts.get(key)
 
-    def all_facts(self):
-        """Returns a dictionary of all known facts."""
-        return dict(self._facts)
+__all__ = ["WorldModel"]
+

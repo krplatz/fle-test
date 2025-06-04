@@ -11,5 +11,6 @@ if env_src_dir not in sys.path:
     sys.path.insert(0, env_src_dir)
 # Now import and run the actual script
 from eval.open.independent_runs.run import main
+
 if __name__ == "__main__":
     main()

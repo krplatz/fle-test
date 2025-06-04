@@ -108,5 +108,3 @@ if __name__ == '__main__':
     # To run the test:
     # asyncio.run(test_reflection())
     print("MetaCognition class defined. To test, uncomment `asyncio.run(test_reflection())` in the main block.")
-
-```

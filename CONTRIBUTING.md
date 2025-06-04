@@ -27,6 +27,18 @@ We welcome contributions to the Factorio Learning Environment! Here's how you ca
 4. Link any related issues in your pull request description
 5. Wait for review from maintainers
 
+### Running Tests
+
+Unit tests require a few additional packages such as `numpy` and `python-dotenv`.
+Install them with:
+
+```bash
+pip install -e .[dev]
+```
+
+or install packages listed in `env/src/requirements.txt`.
+Run tests using `pytest -q` from the repository root.
+
 ### Adding New Tools
 
 When adding new tools to the environment:

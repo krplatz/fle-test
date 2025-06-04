@@ -1,11 +1,3 @@
-import os
-import sys
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[3]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
 from agents.alphagenius.memory.memory_module import MemoryModule
 
 
@@ -37,5 +29,4 @@ def test_memory_module_persistence(tmp_path):
 
     assert loaded == 2
     assert new_memory.experiences == memory.experiences
-
 
