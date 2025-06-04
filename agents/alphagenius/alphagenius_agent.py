@@ -16,6 +16,8 @@ except ImportError:
     FactorioEnvironmentType = (type(None),)
 
 from .llm_interface.llm_client import ConcreteLLMClient
+from .world_model import WorldModel
+from .skill_library import greet
 try:
     from agents.utils.llm_factory import LLMFactory
 except ImportError:
@@ -111,8 +113,10 @@ class AlphaGeniusAgent:
         # ... (self.config, self.environment, self.agent_idx setup)
         self.config = config; self.environment = environment; self.agent_idx = agent_idx
         
-        self.discovery_tracker = DiscoveryTracker() 
+        self.discovery_tracker = DiscoveryTracker()
         self.memory_module = MemoryModule(filepath="alphagenius_memory.jsonl") # <--- NEW
+        self.world_model = WorldModel()  # Simple key-value world model
+        self.world_model.set_fact("initialized", True)
 
         # ... (system_prompt setup)
         alpha_genius_meta_prompt = ("You are AlphaGenius, an advanced AI agent playing Factorio. " # Shortened for brevity
@@ -143,6 +147,7 @@ class AlphaGeniusAgent:
         print("Planner module initialized.")
         print("MetaCognition module initialized.")
         print(f"Memory module initialized, will save to '{self.memory_module.filepath}'.")
+        print(f"WorldModel initialized with facts: {self.world_model.all_facts()}")
         if self.environment and FactorioInstance: print(f"Agent has access to Factorio Environment: {type(self.environment).__name__}.")
         elif not self.environment: print("Agent running without recognized FactorioEnvironment access (using mocks for execution).")
 
@@ -337,7 +342,11 @@ class AlphaGeniusAgent:
 
 # ... (__main__ block as before)
 if __name__ == '__main__':
-    agent = AlphaGeniusAgent(model_name="gpt-4o-mini") 
+    greet()  # Demonstration of a simple skill
+    agent = AlphaGeniusAgent(model_name="gpt-4o-mini")
+    # Example: store and retrieve a fact from the world model
+    agent.world_model.set_fact("example", 42)
+    print("Example fact from world model:", agent.world_model.get_fact("example"))
     try:
         asyncio.run(agent.run())
     except Exception as e:
