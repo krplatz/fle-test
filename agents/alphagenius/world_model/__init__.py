@@ -17,3 +17,4 @@ class WorldModel:
         return self._facts.get(key)
 
 __all__ = ["WorldModel"]
+

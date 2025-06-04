@@ -1,15 +1,32 @@
-import json
 from agents.alphagenius.memory.memory_module import MemoryModule
 
 
 def test_memory_module_persistence(tmp_path):
-    mem_file = tmp_path / "mem.jsonl"
-    mem = MemoryModule(filepath=str(mem_file))
-    mem.add_experience("task1", "script1", "out1", "", 1.0, 0.5, True)
-    mem.add_experience("task2", "script2", "", "err", None, None, False)
-    mem.save_experiences()
+    filepath = tmp_path / "mem.jsonl"
+    memory = MemoryModule(filepath=str(filepath))
 
-    loaded = MemoryModule(filepath=str(mem_file))
-    assert len(loaded.experiences) == 2
-    assert loaded.experiences[0]["sub_goal"] == "task1"
-    assert loaded.experiences[1]["stderr"] == "err"
+    memory.add_experience(
+        sub_goal="goal1",
+        script="script1",
+        stdout="output1",
+        stderr="",
+        fle_score=1.0,
+        novelty_score=0.5,
+        success=True,
+    )
+    memory.add_experience(
+        sub_goal="goal2",
+        script="script2",
+        stdout="output2",
+        stderr="error",
+        fle_score=0.0,
+        novelty_score=0.2,
+        success=False,
+    )
+
+    new_memory = MemoryModule()
+    loaded = new_memory.load_experiences(str(filepath))
+
+    assert loaded == 2
+    assert new_memory.experiences == memory.experiences
+

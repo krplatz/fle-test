@@ -6,3 +6,4 @@ def greet() -> None:
     print("hello")
 
 __all__ = ["greet"]
+

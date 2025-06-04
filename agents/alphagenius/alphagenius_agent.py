@@ -113,8 +113,9 @@ class AlphaGeniusAgent:
         self.config = config; self.environment = environment; self.agent_idx = agent_idx
         
         self.discovery_tracker = DiscoveryTracker()
-        self.memory_module = MemoryModule(filepath="alphagenius_memory.jsonl")
-        self.world_model = WorldModel()
+        self.memory_module = MemoryModule(filepath="alphagenius_memory.jsonl") # <--- NEW
+        self.world_model = WorldModel()  # Simple key-value world model
+        self.world_model.set_fact("initialized", True)
 
         # ... (system_prompt setup)
         alpha_genius_meta_prompt = (
@@ -147,17 +148,21 @@ class AlphaGeniusAgent:
         print("Planner module initialized.")
         print("MetaCognition module initialized.")
         print(f"Memory module initialized, will save to '{self.memory_module.filepath}'.")
-        if self.environment:
-            print(f"Agent connected to environment: {type(self.environment).__name__}.")
-        else:
-            print("Agent running without external environment (using mock execution).")
+        print(f"WorldModel initialized with facts: {self.world_model.all_facts()}")
+        if self.environment and FactorioInstance: print(f"Agent has access to Factorio Environment: {type(self.environment).__name__}.")
+        elif not self.environment: print("Agent running without recognized FactorioEnvironment access (using mocks for execution).")
 
 
-    # Execute a generated Python policy script.
-    # Returns stdout, stderr and a numeric FLE score if available.
-    def execute_policy_script(self, python_script: str) -> tuple:
-        # Execute the script either via the environment's ``eval`` method or a
-        # local sandbox if no environment is attached.
+    # execute_policy_script method remains the same for now
+    # It will be updated in Step 3 of this plan to return fle_score
+    def execute_policy_script(self, python_script: str) -> tuple: # Current: (stdout, stderr)
+        # ... (implementation as before) ...
+        # For now, let's assume it returns a mock score as the third element if it's not doing so already
+        # This will be properly done in Step 3. For this step, we'll mock it in run.
+        # stdout_val, stderr_val = "mock_stdout_from_exec", "" # Placeholder
+        # This is just to make the call from run work, will be replaced by actual return in step 3
+        # In reality, the existing exec_policy_script is fine, run will just pass a mock score for now.
+        # ---- COPIED FROM PREVIOUS WORKING VERSION ----
         print(f"AlphaGeniusAgent: execute_policy_script() called with Python script:\n---\n{python_script}\n---")
         stdout = ""; stderr = ""; fle_score = 0.0
         if self.environment and hasattr(self.environment, 'eval') and callable(self.environment.eval):
@@ -344,7 +349,11 @@ class AlphaGeniusAgent:
 
 # ... (__main__ block as before)
 if __name__ == '__main__':
+    greet()  # Demonstration of a simple skill
     agent = AlphaGeniusAgent(model_name="gpt-4o-mini")
+    # Example: store and retrieve a fact from the world model
+    agent.world_model.set_fact("example", 42)
+    print("Example fact from world model:", agent.world_model.get_fact("example"))
     try:
         asyncio.run(agent.run())
     except Exception as e:
