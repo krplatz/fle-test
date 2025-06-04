@@ -100,7 +100,7 @@ class ConcreteLLMClient(BaseLLMClient):
         self.default_system_prompt = default_system_prompt # Store default
         print(f"ConcreteLLMClient initialized with model: {self.model_name}, factory: {type(self.llm_factory).__name__}, default system prompt (first 50 chars): '{self.default_system_prompt[:50]}...'")
 
-    async def generate_script_async(self, user_prompt_content: str, system_prompt_override: Optional[str] = None) -> str: # MODIFIED SIGNATURE
+    async def generate_script_async(self, user_prompt_content: str, system_prompt_override: Optional[str] = None) -> str:
         current_system_prompt = system_prompt_override if system_prompt_override is not None else self.default_system_prompt
         
         print(f"ConcreteLLMClient: Using system prompt (first 100 chars): '{current_system_prompt[:100]}...'")

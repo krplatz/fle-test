@@ -112,5 +112,6 @@ if __name__ == '__main__':
     # new_memory.save_experiences() # Appends via add_experience, save_experiences overwrites
 
     print(f"Final experiences in new_memory: {len(new_memory.experiences)}")
-    if os.path.exists(mem_file): os.remove(mem_file)
-```
+    if os.path.exists(mem_file):
+        os.remove(mem_file)
+

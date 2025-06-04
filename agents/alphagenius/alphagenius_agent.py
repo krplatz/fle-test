@@ -6,14 +6,20 @@ import traceback
 import asyncio
 import builtins # For mock execution fallback
 
+"""AlphaGenius agent implementation."""
+
+# The agent can operate with any environment that exposes an ``eval`` method
+# returning ``(score, goal, result)``. We keep the optional imports for the
+# Factorio Learning Environment for backwards compatibility but do not rely on
+# them at run time.
 try:
-    from env.src.instance import FactorioInstance
-    from env.src.gym.factorio_environment import FactorioEnv
-    FactorioEnvironmentType = (FactorioInstance, FactorioEnv)
-except ImportError:
-    FactorioInstance = None
-    FactorioEnv = None
-    FactorioEnvironmentType = (type(None),)
+    from env.src.instance import FactorioInstance as BaseGameInstance
+    from env.src.gym.factorio_environment import FactorioEnv as BaseGameEnv
+    EnvironmentType = (BaseGameInstance, BaseGameEnv)
+except ImportError:  # Generic fallback when FLE is unavailable
+    BaseGameInstance = None
+    BaseGameEnv = None
+    EnvironmentType = (type(None),)
 
 from .llm_interface.llm_client import ConcreteLLMClient
 try:
@@ -39,42 +45,37 @@ except ImportError:
                             user_prompt_content = msg.get('content', "")
             
             response_content_str = ""
-            is_planning_call = "expert planning assistant" in system_prompt_content.lower() 
-            is_reflection_call = "expert debugging and ai programming assistant" in system_prompt_content.lower()
+            is_planning_call = "planning assistant" in system_prompt_content.lower()
+            is_reflection_call = "debugging assistant" in system_prompt_content.lower()
 
             if is_planning_call:
                 print("Placeholder LLMFactory: Detected call for PLANNING.")
-                if "automate the production of iron plates" in user_prompt_content.lower():
-                    response_content_str = (
-                        "1. Mine 15 iron ore.\n"
-                        "2. Cause an intentional error for testing reflection.\n" 
-                        "3. Build a stone furnace after reflection."
-                    )
-                else: 
-                    response_content_str = ("1. Survey area.\n2. Gather initial resources.")
+                if "greeting" in user_prompt_content.lower():
+                    response_content_str = "1. Print a greeting.\n2. Confirm completion."
+                else:
+                    response_content_str = "1. Inspect environment.\n2. Perform a simple action."
             elif is_reflection_call:
                 print("Placeholder LLMFactory: Detected call for REFLECTION.")
-                if "faulty_python_script" in user_prompt_content and "undefined_variable_to_cause_error" in user_prompt_content:
+                if "undefined_variable" in user_prompt_content:
                     response_content_str = (
-                        "Explanation: The script tried to use 'undefined_variable_to_cause_error'.\n"
-                        "```python\n"
-                        "print('This is the CORRECTED mock script after reflection.')\n"
-                        "corrected_result = 'reflection_success'\n"
-                        "print(f'Corrected script result: {{corrected_result}}')\n"
-                        "```"
+                        "Explanation: The script used an undefined variable.\n"
+                        "```python\nprint('Corrected execution')\nvalue = 42\nprint(value)\n```"
                     )
                 else:
-                    response_content_str = "Suggestion: Unable to determine correction from this error context."
-            else: # Call is for CODE GENERATION
+                    response_content_str = "Suggestion: Review the error message and adjust the script."
+            else:  # Call is for CODE GENERATION
                 print("Placeholder LLMFactory: Detected call for CODE GENERATION.")
-                if "mine 15 iron ore" in user_prompt_content.lower():
-                    response_content_str = "print('Mock script: Mining 15 iron ore...')\nresult = mine_resource('iron-ore', 15)\nprint(f'Mining result: {{result}}')"
+                if "print a greeting" in user_prompt_content.lower():
+                    response_content_str = "print('Hello from AlphaGenius!')"
                 elif "cause an intentional error" in user_prompt_content.lower():
-                    response_content_str = "print('Executing script designed to fail...')\nundefined_variable_to_cause_error = 1 / 0" 
-                elif "build a stone furnace after reflection" in user_prompt_content.lower():
-                    response_content_str = "print('Mock script: Building a stone furnace post-reflection...')\nresult = place_entity(entity_name='stone-furnace', position={'x':5, 'y':5}, direction=Direction.NORTH)\nprint(f'Placement result: {{result}}')"
-                else: 
-                    response_content_str = "print(f'Mock Python script executed for sub-goal: {user_prompt_content[:50]}...')"
+                    response_content_str = (
+                        "print('Executing script designed to fail...')\n"
+                        "undefined_variable = 1 / 0"
+                    )
+                else:
+                    response_content_str = (
+                        f"print('Mock Python script executed for sub-goal: {user_prompt_content[:50]}...')"
+                    )
             
             class MockMessage:
                 def __init__(self, content): self.content = content
@@ -90,20 +91,18 @@ from .prompts.initial_prompts import SIMPLE_TASK_PROMPTS
 from .intrinsic_motivation.discovery_tracker import DiscoveryTracker
 from .planning.planner import Planner
 from .metacognition.meta_cognition import MetaCognition
-from .memory.memory_module import MemoryModule # <--- NEW IMPORT
+from .memory.memory_module import MemoryModule
 
 PLANNING_SYSTEM_PROMPT = (
-    "You are an expert planning assistant for an AI agent playing the game Factorio. "
-    # ... (rest of prompt as before, shortened for brevity in this thought block)
-    "1. Setup iron gear wheel production. "
-    "2. Setup copper plate production. "
-    "3. Setup assembly lines for red science packs using iron gear wheels and copper plates."
+    "You are an expert planning assistant for a learning agent operating in an arbitrary environment. "
+    "Given a high level goal and the latest observations, break the goal into a short list of actionable sub-goals. "
+    "Keep the sub-goals concise and ordered."
 )
 
 REFLECTION_SYSTEM_PROMPT = (
-    "You are an expert debugging and AI programming assistant for an agent playing Factorio. "
-    # ... (rest of prompt as before, shortened for brevity in this thought block)
-    "Structure your response clearly, with the explanation first, then the corrected script (if any) or the suggestion."
+    "You are an expert debugging assistant for an autonomous agent. "
+    "Analyse the provided error and suggest a concise correction or alternative approach. "
+    "Structure your response with a brief explanation followed by a corrected script (if any) or a suggestion."
 )
 
 class AlphaGeniusAgent:
@@ -112,16 +111,17 @@ class AlphaGeniusAgent:
         self.config = config; self.environment = environment; self.agent_idx = agent_idx
         
         self.discovery_tracker = DiscoveryTracker() 
-        self.memory_module = MemoryModule(filepath="alphagenius_memory.jsonl") # <--- NEW
+        self.memory_module = MemoryModule(filepath="alphagenius_memory.jsonl")
 
         # ... (system_prompt setup)
-        alpha_genius_meta_prompt = ("You are AlphaGenius, an advanced AI agent playing Factorio. " # Shortened for brevity
-            "You have been given a specific sub-task by your planning module. " 
-            "Your current objective is to generate a concise Python script using the available Factorio Learning Environment (FLE) tools to achieve this sub-task. " 
-            "Carefully consider the output from the previous action (observation: stdout/stderr) to inform your script. "
-            "If the previous step resulted in an error, try to understand it and adapt your current script to overcome the issue or achieve the sub-task in a different way. "
-            "Strive for a script that is efficient, correct, and directly contributes to the sub-task. "
-            "Ensure your script is directly executable and uses the FLE tool API as documented.\n")
+        alpha_genius_meta_prompt = (
+            "You are AlphaGenius, an autonomous agent capable of learning in many environments. "
+            "You have been given a specific sub-task by your planning module. "
+            "Generate a concise Python script using the tools provided by the current environment to achieve this sub-task. "
+            "Consider the previous output (stdout/stderr) when forming your script. "
+            "If the prior attempt produced an error, adapt your script to overcome the issue or try a different approach. "
+            "Strive for a solution that is efficient, correct and directly contributes to the sub-task.\n"
+        )
         if self.environment and hasattr(self.environment, 'get_system_prompt'):
             fle_system_prompt = self.environment.get_system_prompt(self.agent_idx)
             self.system_prompt = alpha_genius_meta_prompt + "\nFLE Tool Documentation..." + fle_system_prompt
@@ -143,53 +143,47 @@ class AlphaGeniusAgent:
         print("Planner module initialized.")
         print("MetaCognition module initialized.")
         print(f"Memory module initialized, will save to '{self.memory_module.filepath}'.")
-        if self.environment and FactorioInstance: print(f"Agent has access to Factorio Environment: {type(self.environment).__name__}.")
-        elif not self.environment: print("Agent running without recognized FactorioEnvironment access (using mocks for execution).")
+        if self.environment:
+            print(f"Agent connected to environment: {type(self.environment).__name__}.")
+        else:
+            print("Agent running without external environment (using mock execution).")
 
 
-    # execute_policy_script method remains the same for now
-    # It will be updated in Step 3 of this plan to return fle_score
-    def execute_policy_script(self, python_script: str) -> tuple: # Current: (stdout, stderr)
-        # ... (implementation as before) ...
-        # For now, let's assume it returns a mock score as the third element if it's not doing so already
-        # This will be properly done in Step 3. For this step, we'll mock it in run.
-        # stdout_val, stderr_val = "mock_stdout_from_exec", "" # Placeholder
-        # This is just to make the call from run work, will be replaced by actual return in step 3
-        # In reality, the existing exec_policy_script is fine, run will just pass a mock score for now.
-        # ---- COPIED FROM PREVIOUS WORKING VERSION ----
+    # Execute a generated Python policy script.
+    # Returns stdout, stderr and a numeric FLE score if available.
+    def execute_policy_script(self, python_script: str) -> tuple:
+        # Execute the script either via the environment's ``eval`` method or a
+        # local sandbox if no environment is attached.
         print(f"AlphaGeniusAgent: execute_policy_script() called with Python script:\n---\n{python_script}\n---")
-        stdout = ""; stderr = ""
+        stdout = ""; stderr = ""; fle_score = 0.0
         if self.environment and hasattr(self.environment, 'eval') and callable(self.environment.eval):
-            print("Using self.environment.eval() for script execution.")
+            print("Using environment.eval() for script execution.")
             try:
                 agent_idx_to_use = getattr(self, 'agent_idx', 0)
                 score, goal_str, result_str = self.environment.eval(python_script, agent_idx=agent_idx_to_use)
                 print(f"environment.eval result: score={score}, goal='{goal_str}', result_str_length={len(result_str)}")
-                if score == -1 or "Error:" in result_str or "Traceback (most recent call last):" in result_str: stderr = result_str
-                else: stdout = result_str
+                fle_score = score
+                if score == -1 or "Error:" in result_str or "Traceback (most recent call last):" in result_str:
+                    stderr = result_str
+                else:
+                    stdout = result_str
                 if not stdout and not stderr: stdout = "Script executed via environment.eval() with no output."
             except Exception as e:
                 stderr = f"Python exception calling environment.eval(): {type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
-        else: # Mock execution
-            print("No Factorio environment with 'eval'. Using local mock exec() for script.")
+        else:  # Mock execution
+            print("No environment 'eval' method found. Using local mock exec() for script.")
             sandbox_globals = {"print": print}; import builtins 
             def mock_tool_factory(tool_name_display):
                 def mock_tool_impl(*args, **kwargs):
                     print_func = sandbox_globals.get('print', builtins.print)
-                    print_func(f"MockTool '{tool_name_display}' called with args: {args}, kwargs: {kwargs}")
-                    if tool_name_display == "get_player_inventory": return {"mock_item": 5}
+                    print_func(
+                        f"MockTool '{tool_name_display}' called with args: {args}, kwargs: {kwargs}"
+                    )
                     return f"Mock result from {tool_name_display}"
                 return mock_tool_impl
-            essential_tools = ['mine_resource', 'craft_item', 'set_research', 'place_entity', 'get_player_inventory']
-            for tool_name in essential_tools: sandbox_globals[tool_name] = mock_tool_factory(tool_name)
-            class MockDirection: NORTH="NORTH"; SOUTH="SOUTH"; EAST="EAST"; WEST="WEST"
-            class MockPrototype: IronOre="iron-ore"; StoneFurnace="stone-furnace"; MiningDrill="burner-mining-drill"
-            class MockEntityStatus: WORKING="WORKING"; NO_INGREDIENTS="NO_INGREDIENTS"
-            essential_enums = {'Direction': MockDirection, 'Prototype': MockPrototype, 'EntityStatus': MockEntityStatus, 
-                               'Item': type('MockItem', (), {}), 'Recipe': type('MockRecipe', (), {}), 
-                               'Technology': type('MockTechnology', (), {}), 'Resource': type('MockResource', (), {})}
-            for name, mock_class in essential_enums.items(): sandbox_globals[name] = mock_class
-            class MockDefines: pass; MockDefines.direction = MockDirection; class MockGame: defines = MockDefines(); sandbox_globals['game'] = MockGame(); sandbox_globals['defines'] = MockDefines
+            essential_tools = ['tool_a', 'tool_b', 'tool_c']
+            for tool_name in essential_tools:
+                sandbox_globals[tool_name] = mock_tool_factory(tool_name)
             stdout_capture = io.StringIO(); stderr_capture = io.StringIO()
             try:
                 with contextlib.redirect_stdout(stdout_capture), contextlib.redirect_stderr(stderr_capture):
@@ -199,48 +193,58 @@ class AlphaGeniusAgent:
             except Exception as e:
                 stdout = stdout_capture.getvalue(); stderr = stderr_capture.getvalue()
                 stderr += f"\nPython exception during mock script execution: {type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
-        return stdout, stderr
-        # ---- END COPIED SECTION ----
+        return stdout, stderr, fle_score
 
 
-    # policy_step will be updated in Step 2 of this plan to return novelty_score
-    # and in Step 3 to also return fle_score. For now, it returns (stdout, stderr, script)
-    async def policy_step(self, last_stdout: str, last_stderr: str, current_task_prompt: str) -> tuple[str, str, str]:
-        # ... (implementation as before, returning stdout, stderr, python_script_to_execute) ...
-        # ---- COPIED FROM PREVIOUS WORKING VERSION ----
+    # Generate a Python script for the given sub-task, execute it and
+    # compute intrinsic and extrinsic rewards.
+    async def policy_step(self, last_stdout: str, last_stderr: str, current_task_prompt: str) -> tuple[str, str, str, float, float]:
         print(f"\nAlphaGeniusAgent: policy_step() processing task: '{current_task_prompt}'")
         if last_stdout: print(f"Observation (last_stdout):\n{last_stdout}")
         if last_stderr: print(f"Observation (last_stderr):\n{last_stderr}")
-        if not hasattr(self, 'system_prompt') or not self.system_prompt: self.system_prompt = "Default AlphaGenius System Prompt (from policy_step)" 
+        if not hasattr(self, 'system_prompt') or not self.system_prompt: self.system_prompt = "Default AlphaGenius System Prompt (from policy_step)"
         user_content_for_llm = (f"Previous action's output (Observation):\nSTDOUT:\n{last_stdout if last_stdout else 'None'}\nSTDERR:\n{last_stderr if last_stderr else 'None'}\n\nYour current specific sub-task to accomplish: {current_task_prompt}")
         print(f"Sending to LLM client for code generation:")
         print(f"  System Prompt Override (first 100 chars): '{self.system_prompt[:100]}...'")
         print(f"  User Content (first 200 chars): '{user_content_for_llm[:200]}...'")
-        python_script_to_execute = await self.llm_client.generate_script_async(user_prompt_content=user_content_for_llm, system_prompt_override=self.system_prompt)
-        stdout, stderr = self.execute_policy_script(python_script_to_execute) # Original return
+        python_script_to_execute = await self.llm_client.generate_script_async(
+            user_prompt_content=user_content_for_llm,
+            system_prompt_override=self.system_prompt,
+        )
+
+        stdout, stderr, fle_score = self.execute_policy_script(python_script_to_execute)
         print(f"execute_policy_script stdout (new output):\n{stdout}")
-        if stderr: print(f"MetaCognition Hint: Error or stderr output during Python script execution!\nexecute_policy_script stderr (new output):\n{stderr}")
+        novelty_score = self._compute_novelty_score(python_script_to_execute, current_task_prompt, stdout, stderr)
+        if stderr:
+            print(f"MetaCognition Hint: Error or stderr output during Python script execution!\nexecute_policy_script stderr (new output):\n{stderr}")
         else:
             print("Python script execution reported no errors in stderr.")
-            # Intrinsic motivation / discovery tracker calls will be updated in Step 2 of this plan
-            if "craft" in current_task_prompt.lower() or ("craft_item" in python_script_to_execute):
-                mock_item_name = "unknown_item_crafted"
-                if "furnace" in current_task_prompt.lower() or "stone-furnace" in python_script_to_execute: mock_item_name = "stone-furnace"
-                elif "iron plate" in current_task_prompt.lower() or "iron-plate" in python_script_to_execute: mock_item_name = "iron-plate"
-                # novelty_score = self.discovery_tracker.add_item_crafted(mock_item_name) # Will be done in step 2
-                self.discovery_tracker.add_item_crafted(mock_item_name) # Call as before for now
-            if "research" in current_task_prompt.lower() and ("automation" in current_task_prompt.lower() or "set_research('automation')" in python_script_to_execute):
-                 self.discovery_tracker.add_technology_researched("automation")
-        return stdout, stderr, python_script_to_execute 
-        # ---- END COPIED SECTION ----
+
+        return stdout, stderr, python_script_to_execute, fle_score, novelty_score
+
+    def _compute_novelty_score(self, script: str, task_prompt: str, stdout: str, stderr: str) -> float:
+        """Return 1.0 if the script contains previously unseen tokens."""
+        if stderr:
+            return 0.0
+
+        tokens = set(
+            token.strip()
+            for token in script.replace("(", " ").replace(")", " ").replace(",", " ").split()
+            if token.strip()
+        )
+        is_new = False
+        for t in tokens:
+            if self.discovery_tracker.add_event(t):
+                is_new = True
+        return 1.0 if is_new else 0.0
 
 
     async def run(self):
-        print("\nAlphaGeniusAgent async run method started (MemoryModule integration).") # MODIFIED PRINT
-        current_stdout = "Game started. No previous actions." 
+        print("\nAlphaGeniusAgent async run method started (MemoryModule integration).")
+        current_stdout = "Agent initialized."
         current_stderr = ""
-        
-        high_level_task = "Automate the production of iron plates starting from scratch."
+
+        high_level_task = "Print a friendly greeting message."
         print(f"High-level task for AlphaGenius: {high_level_task}")
 
         observation_for_planner = f"STDOUT:\n{current_stdout}\nSTDERR:\n{current_stderr}"
@@ -249,7 +253,7 @@ class AlphaGeniusAgent:
         if not sub_goals or (len(sub_goals) == 1 and ("Error in planning" in sub_goals[0] or "Exception during planning" in sub_goals[0])):
             print(f"Planner failed or returned no valid sub-goals: {sub_goals[0] if sub_goals else 'No sub-goals'}. Stopping run.")
             # Log planning failure to memory
-            self.memory_module.add_experience( # <--- NEW
+            self.memory_module.add_experience(
                 sub_goal=high_level_task, script="N/A (Planning Failed)", 
                 stdout=observation_for_planner, stderr=sub_goals[0] if sub_goals else "Planner returned empty list",
                 fle_score=None, novelty_score=None, success=False
@@ -267,27 +271,23 @@ class AlphaGeniusAgent:
             observation_stderr_for_this_attempt = current_stderr
 
             # Initial attempt for the sub-goal
-            # policy_step will return (stdout, stderr, script_executed, fle_score, novelty_score) after later steps.
-            # For now, it returns (stdout, stderr, script_executed).
-            # We'll pass placeholder fle_score (0.0) and novelty_score (0.0) to memory.
             
-            # Step 3 will make execute_policy_script return score.
-            # Step 2 will make policy_step return novelty_score.
-            # For THIS step (Step 1), we just pass placeholders to add_experience.
-            
-            stdout_attempt1, stderr_attempt1, script_attempted1 = await self.policy_step(
-                observation_stdout_for_this_attempt, observation_stderr_for_this_attempt, sub_goal
+            stdout_attempt1, stderr_attempt1, script_attempted1, fle_score_attempt1, novelty_score_attempt1 = await self.policy_step(
+                observation_stdout_for_this_attempt,
+                observation_stderr_for_this_attempt,
+                sub_goal,
             )
-            
-            # MOCK SCORES FOR NOW - these will be properly plumbed in steps 2 & 3
-            mock_fle_score_attempt1 = 0.0 if not stderr_attempt1 else -1.0
-            mock_novelty_score_attempt1 = 0.0 # Will get from discovery_tracker in step 2
 
-            success_attempt1 = not (stderr_attempt1 and ("Error" in stderr_attempt1 or "Exception" in stderr_attempt1 or "Traceback" in stderr_attempt1))
-            
-            self.memory_module.add_experience( # <--- NEW
-                sub_goal=sub_goal, script=script_attempted1, stdout=stdout_attempt1, stderr=stderr_attempt1,
-                fle_score=mock_fle_score_attempt1, novelty_score=mock_novelty_score_attempt1, success=success_attempt1
+            success_attempt1 = not (stderr_attempt1 and ("error" in stderr_attempt1.lower() or "exception" in stderr_attempt1.lower() or "traceback" in stderr_attempt1.lower()))
+
+            self.memory_module.add_experience(
+                sub_goal=sub_goal,
+                script=script_attempted1,
+                stdout=stdout_attempt1,
+                stderr=stderr_attempt1,
+                fle_score=fle_score_attempt1,
+                novelty_score=novelty_score_attempt1,
+                success=success_attempt1,
             )
 
             current_stdout, current_stderr = stdout_attempt1, stderr_attempt1
@@ -303,7 +303,7 @@ class AlphaGeniusAgent:
                     system_prompt_for_reflection=REFLECTION_SYSTEM_PROMPT
                 )
                 
-                # Corrected script parsing (will be refined in Step 4 of this plan)
+                # Attempt to extract a corrected script from the suggestion
                 corrected_script = None
                 if "```python" in llm_suggestion:
                     try:
@@ -315,32 +315,34 @@ class AlphaGeniusAgent:
                     print(f"MetaCognition proposed a corrected script:\n{corrected_script}")
                     print("Attempting corrected script...")
                     
-                    # stdout_corrected, stderr_corrected = self.execute_policy_script(corrected_script)
-                    # This also needs to be updated to get fle_score in Step 3
-                    # For now, using placeholders for score for memory logging.
-                    stdout_corrected, stderr_corrected = self.execute_policy_script(corrected_script)
-                    mock_fle_score_corrected = 0.0 if not stderr_corrected else -1.0
-                    mock_novelty_score_corrected = 0.0 # Correction attempts might not generate novelty
+                    # Execute the corrected script
+                    stdout_corrected, stderr_corrected, fle_score_corrected = self.execute_policy_script(corrected_script)
+                    novelty_score_corrected = self._compute_novelty_score(corrected_script, sub_goal, stdout_corrected, stderr_corrected)
 
-                    success_corrected = not (stderr_corrected and ("Error" in stderr_corrected or "Exception" in stderr_corrected or "Traceback" in stderr_corrected))
-                    
-                    self.memory_module.add_experience( # <--- NEW
-                        sub_goal=f"{sub_goal} (Corrected Attempt)", script=corrected_script, 
-                        stdout=stdout_corrected, stderr=stderr_corrected,
-                        fle_score=mock_fle_score_corrected, novelty_score=mock_novelty_score_corrected, success=success_corrected
+                    success_corrected = not (stderr_corrected and ("error" in stderr_corrected.lower() or "exception" in stderr_corrected.lower() or "traceback" in stderr_corrected.lower()))
+
+                    self.memory_module.add_experience(
+                        sub_goal=f"{sub_goal} (Corrected Attempt)",
+                        script=corrected_script,
+                        stdout=stdout_corrected,
+                        stderr=stderr_corrected,
+                        fle_score=fle_score_corrected,
+                        novelty_score=novelty_score_corrected,
+                        success=success_corrected,
                     )
-                    current_stdout, current_stderr = stdout_corrected, stderr_corrected # Update observation
+                    current_stdout, current_stderr = stdout_corrected, stderr_corrected
                 else:
                     print(f"MetaCognition did not provide a script, suggestion was: {llm_suggestion}")
             
         print("\nAlphaGeniusAgent async run method (with MemoryModule) finished.")
+        if self.memory_module.filepath:
+            self.memory_module.save_experiences()
 
 # ... (__main__ block as before)
 if __name__ == '__main__':
-    agent = AlphaGeniusAgent(model_name="gpt-4o-mini") 
+    agent = AlphaGeniusAgent(model_name="gpt-4o-mini")
     try:
         asyncio.run(agent.run())
     except Exception as e:
         print(f"Error running AlphaGeniusAgent: {e}")
         traceback.print_exc()
-```
