@@ -25,6 +25,14 @@ def parse_response(response) -> Optional[Policy]:
     if not code:
         return None
 
-    policy = Policy(code=code,
-                    meta=PolicyMeta(output_tokens=output_tokens, input_tokens=input_tokens,total_tokens=total_tokens, text_response=text_response))
+    policy = Policy(
+        code=code,
+        meta=PolicyMeta(
+            output_tokens=output_tokens,
+            input_tokens=input_tokens,
+            total_tokens=total_tokens,
+            text_response=text_response,
+        ),
+    )
     return policy
+

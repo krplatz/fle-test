@@ -22,6 +22,8 @@ except ImportError:  # Generic fallback when FLE is unavailable
     EnvironmentType = (type(None),)
 
 from .llm_interface.llm_client import ConcreteLLMClient
+from .world_model import WorldModel
+from .skill_library import greet
 try:
     from agents.utils.llm_factory import LLMFactory
 except ImportError:
@@ -110,8 +112,9 @@ class AlphaGeniusAgent:
         # ... (self.config, self.environment, self.agent_idx setup)
         self.config = config; self.environment = environment; self.agent_idx = agent_idx
         
-        self.discovery_tracker = DiscoveryTracker() 
+        self.discovery_tracker = DiscoveryTracker()
         self.memory_module = MemoryModule(filepath="alphagenius_memory.jsonl")
+        self.world_model = WorldModel()
 
         # ... (system_prompt setup)
         alpha_genius_meta_prompt = (
@@ -129,6 +132,7 @@ class AlphaGeniusAgent:
             self.system_prompt = alpha_genius_meta_prompt + "\nAvailable tools (mock environment)..."
         
         print("AlphaGeniusAgent initialized.")
+        greet()  # demonstrate a basic skill call
         # ... (LLMFactory, ConcreteLLMClient, Planner, MetaCognition instantiation as before)
         try: actual_llm_factory = LLMFactory(model=model_name)
         except TypeError: actual_llm_factory = LLMFactory()
